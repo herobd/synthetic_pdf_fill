@@ -11,8 +11,20 @@ while getopts f:r: opt; do
 done
 echo "File: $file"
 
-pdf2json -f $file
-
 json_file="${file::-4}.json"
-python3 pretty_printing.py $json_file;
+
+if [[ ! -f "${file::-4}.json" ]] # only creates json file if it does't already exist
+then
+	pdf2json -f $file
+else
+	echo "${file::-4}.json already exists, no need to do it again!"
+fi
+
+if [[ ! -f "${file::-4}PrettyPrinted.json" ]]
+then
+	python3 pretty_printing.py $json_file
+else
+	echo "${file::-4}PrettyPrinted.json already exists, no need to do it again!"
+fi
+
 python3 pdf_to_image.py $file $image_res
