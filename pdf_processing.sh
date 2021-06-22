@@ -9,22 +9,32 @@ while getopts f:r: opt; do
 		r) image_res=${OPTARG};;
 	esac
 done
-echo "File: $file"
+
+if [[ -f $file ]]
+then
+	echo "${file} exists!"
+else
+	echo "this file does not exist!"
+	exit
+fi
 
 json_file="${file::-4}.json"
 
-if [[ ! -f "${file::-4}.json" ]] # only creates json file if it does't already exist
+# convert PDF to JSON if the JSON doesn't already exist
+if [[ ! -f "${file::-4}.json" ]]
 then
 	pdf2json -f $file
 else
-	echo "${file::-4}.json already exists, no need to do it again!"
+	echo "${file::-4}.json already exists!"
 fi
 
+# convert JSON to human readable form if not already done
 if [[ ! -f "${file::-4}PrettyPrinted.json" ]]
 then
 	python3 pretty_printing.py $json_file
 else
-	echo "${file::-4}PrettyPrinted.json already exists, no need to do it again!"
+	echo "${file::-4}PrettyPrinted.json already exists!"
 fi
+
 
 python3 pdf_to_image.py $file $image_res

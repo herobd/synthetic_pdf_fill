@@ -1,5 +1,5 @@
 import os
-from synthetic_text_gen.synthetic_text_gen import synthetic_text as syn_text
+from synthetic_text_gen.synthetic_text_gen import synthetic_text
 import sys
 import json
 import re
@@ -8,6 +8,7 @@ import os.path
 import img_f
 
 import pdfplumber
+import numpy as np
 
 
 def read_args():
@@ -159,16 +160,24 @@ def draw_bounding_boxes(list, pageWidth, pageHeights):
 				w = list[dataIndex][4] * widthMultiplier
 
 				if(list[dataIndex][1] == "text"):
-					img_f.line(img,(int(x),int(y)),(int(x)+int(w),int(y)),color=(0,200,40),thickness=4)
+					img_f.line(img,(int(x),int(y)),(int(x)+int(w),int(y)),color=(0,200,40),thickness=3)
 				else:
-					h = list[dataIndex][5] * heightMultiplier # height for text is WRONG
+					h = list[dataIndex][5] * heightMultiplier 
+
+					if(list[dataIndex][1] == "field"):
+						textImage = create_text(w, h)
+						textImage = np.stack((textImage,textImage,textImage),axis=2)
+						# print("adding an image to page " + str(i) + " w/ shape " + str(textImage.shape))
+						# print("y=" + str(int(x)+textImage.shape[0]) + ",=" + str(int(y)+textImage.shape[1]))
+						img[int(y):int(y)+textImage.shape[0], int(x):int(x)+textImage.shape[1]] = textImage
 
 					leftX = int(x)
 					leftY = int(y)
 					rightX = int(x + w)
 					rightY = int(y + h)
 
-					img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(255,0,0),thickness=4)
+					# draw bounding boxes for fields and boxes
+					img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(255,0,0),thickness=3)
 			else:
 				break
 			dataIndex += 1
@@ -179,25 +188,37 @@ def draw_bounding_boxes(list, pageWidth, pageHeights):
 		i += 1
 
 
-def fill_fields():
-	print("filling fields... lol jk not yet, hasn't yet been implemented")
+def create_text(width, height):
+	generator = synthetic_text.SyntheticText("fonts", ".",line_prob=0.0,line_thickness=70,line_var=0,mean_pad=10,
+	pad=0,gaus_noise=0,gaus_std=0.0000001,blur_std=0.01,hole_prob=0.0, hole_size=400,neighbor_gap_var=0,rot=0.1, 
+	use_warp=0.0,warp_std=[1,1.4], linesAboveAndBelow=False,useBrightness=False)
 
-def create_text():
-	print("creating text as an img...")
-	#self,font_dir,text_dir,text_len=20,text_min_len=1,mean_pad=0,pad=20,line_prob=0.1,line_thickness=3,line_var=20,rot=10, gaus_noise=0.1, gaus_std=0.1, blur_size=1, blur_std=0.2, hole_prob=0.2,hole_size=100,neighbor_gap_mean=20,neighbor_gap_var=7,use_warp=0.5,warp_std=1.5, warp_intr=12, linesAboveAndBelow=True, useBrightness=True, clean=False):
-    #    self.font_dir = font_dir
-	text = syn_text.SyntheticText("fonts", ".")
-	t = text.getText()
-	print("text is " + str(t)) 
-	text.getFont(t)
-	textImage = text.getRenderedText()
-	img = textImage[0]
-	img_f.imwrite("TEXT_IMG.png", img)
-	imageHeight = img.shape[0]
-	imageWidth = img.shape[1]
+	#Logic for getting strings to be the correct length - or at least a length that looks good!
+	widthHeightRatio = width / height
+	# print("width to height ratio is " + str(widthHeightRatio)) # bigger means squatter, less letters
 
-	print(str(imageHeight) + "," + str(imageWidth))
+	numChars = int(widthHeightRatio * 1.5)
+
+	img,text,fnt = generator.getSample(numChars)
+	#img_f.imwrite("TEXT_IMG.png", img)	
+
+	img = 255 - (img * 255)
+	img = img_f.resize(img, (int(height), int(width)))
+	return img
 	
+
+def extract_pdf_text(pdfName):
+	print("extracting text...")
+	pdf = pdfplumber.open(pdfName)
+	for page in pdf.pages:
+		text = page.extract_text()
+		wordList = page.extract_words()
+		print(text)
+		print("height and width of page is " 
+		+ str(page.height) + " and " + str(page.width))
+		for word in wordList:
+			print(word)
+
 
 args = read_args()
 fileName = args[0]
@@ -212,12 +233,11 @@ pageWidth = 0.0
 
 pageCount = create_image(fileName, imageRes, resolutionSpecified)
 data = process_data(fileName, pageCount)
-drawData = data[0]
-pageWidth = data[1]
-pageHeights = data[2]
+drawData, pageWidth, pageHeights = data
 
 # data is a list of tuples (page, field type, x, y, w, h, pageHeight)
 # with text fields, theres a 7th element - the included text
-draw_bounding_boxes(drawData, pageWidth, pageHeights)
-fill_fields()
-create_text()
+# draw_bounding_boxes(drawData, pageWidth, pageHeights)
+
+# using pdfplumber's built in text extraction:
+extract_pdf_text(fileName)
