@@ -12,6 +12,7 @@ done
 
 if [[ -f $file ]]
 then
+	echo "checking if ${file} exists..."
 	echo "${file} exists!"
 else
 	echo "this file does not exist!"
@@ -25,6 +26,7 @@ if [[ ! -f "${file::-4}.json" ]]
 then
 	pdf2json -f $file
 else
+	echo "attempting to write to ${file::-4}.json..."
 	echo "${file::-4}.json already exists!"
 fi
 
@@ -33,6 +35,7 @@ if [[ ! -f "${file::-4}PrettyPrinted.json" ]]
 then
 	python3 pretty_printing.py $json_file
 else
+	echo "attempting to write to ${file::-4}PrettyPrinted.json..."
 	echo "${file::-4}PrettyPrinted.json already exists!"
 fi
 

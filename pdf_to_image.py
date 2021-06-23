@@ -94,22 +94,26 @@ def process_data(fileName, pageCount):
 		pageHeight = pdfInfo['formImage']['Pages'][i]['Height']
 		pageHeights.append(pageHeight)
 
-		for text in pdfInfo['formImage']['Pages'][i]['Texts']:
-			for textInfo in text['R']:
-				h = textInfo['TS'][1] # obtains height of text
-				info = textInfo['T']
-			
+####
+####  CONSIDER CHANGING TUPLES INTO DICTIONARIES FOR EASE OF ORDERING?
+####
+		# text data from pdf2json is jumbled and does not work cohesively
+
+		#for text in pdfInfo['formImage']['Pages'][i]['Texts']:
+			#for textInfo in text['R']:
+				#h = textInfo['TS'][1] # obtains height of text
+				#info = textInfo['T']
 			# replace the most common HTML encodings to make the text more legible
-			info = info.replace("%20", " ")
-			info = info.replace("%3A", ":")
-			info = info.replace("%2C", ",")
-			info = info.replace("%2F", "/")
-			include = string_match(info)
+			#info = info.replace("%20", " ")
+			#info = info.replace("%3A", ":")
+			#info = info.replace("%2C", ",")
+			#info = info.replace("%2F", "/")
+			#include = string_match(info)
 
 			# does the text contain only dashes and/or spaces? if so, don't add
-			if not include:
-				tuple = (i, "text", text['x'], text['y'], text['w'], h, info)
-				list.append(tuple) # what is height here?
+			#if not include:
+				#tuple = (i, "text", text['x'], text['y'], text['w'], h, info)
+				#list.append(tuple) # what is height here?
 
 		for field in pdfInfo['formImage']['Pages'][i]['Fields']:
 			tuple = (i, "field", field['x'], field['y'], field['w'], field['h'])
@@ -121,7 +125,7 @@ def process_data(fileName, pageCount):
 				list.append(tuple)
 
 		i += 1
-	
+
 	return list, pageWidth, pageHeights
 
 
@@ -137,9 +141,10 @@ def print_list(list):
 		counter += 1
 
 
-def draw_bounding_boxes(list, pageWidth, pageHeights):
+def draw_bounding_boxes(list, textData, pageWidth, pageHeights):
 	i = 0
 	dataIndex = 0
+	boxIndex = 0
 	while i < pageCount:
 		imageName = (fileName[:len(fileName)-4] + "/page" + str(i) + ".png")
 		img = img_f.imread(imageName,color=True)
@@ -151,6 +156,8 @@ def draw_bounding_boxes(list, pageWidth, pageHeights):
 		heightMultiplier = imageHeight / pageHeights[i]
 		widthMultiplier = imageWidth / pageWidth
 
+
+		print("drawing field boxes...")
 		currPage = i
 		while currPage == i and dataIndex < len(list):
 			currPage = list[dataIndex][0]
@@ -159,28 +166,47 @@ def draw_bounding_boxes(list, pageWidth, pageHeights):
 				y = list[dataIndex][3] * heightMultiplier
 				w = list[dataIndex][4] * widthMultiplier
 
-				if(list[dataIndex][1] == "text"):
-					img_f.line(img,(int(x),int(y)),(int(x)+int(w),int(y)),color=(0,200,40),thickness=3)
-				else:
-					h = list[dataIndex][5] * heightMultiplier 
+				#if(list[dataIndex][1] == "text"):
+				#	print("encountered text from pdf2json, which is deprecated")
+				#	#img_f.line(img,(int(x),int(y)),(int(x)+int(w),int(y)),color=(0,200,40),thickness=3)
+				#else:
+				h = list[dataIndex][5] * heightMultiplier 
 
-					if(list[dataIndex][1] == "field"):
-						textImage = create_text(w, h)
-						textImage = np.stack((textImage,textImage,textImage),axis=2)
-						# print("adding an image to page " + str(i) + " w/ shape " + str(textImage.shape))
-						# print("y=" + str(int(x)+textImage.shape[0]) + ",=" + str(int(y)+textImage.shape[1]))
-						img[int(y):int(y)+textImage.shape[0], int(x):int(x)+textImage.shape[1]] = textImage
+				#if(list[dataIndex][1] == "field"):
+				#	textImage = create_text(w, h)
+				#	textImage = np.stack((textImage,textImage,textImage),axis=2)
+				#	img[int(y):int(y)+textImage.shape[0], int(x):int(x)+textImage.shape[1]] = textImage
 
-					leftX = int(x)
-					leftY = int(y)
-					rightX = int(x + w)
-					rightY = int(y + h)
+				leftX = int(x)
+				leftY = int(y)
+				rightX = int(x + w)
+				rightY = int(y + h)
 
-					# draw bounding boxes for fields and boxes
-					img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(255,0,0),thickness=3)
+				# draw bounding boxes for fields and boxes
+				img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(255,0,0),thickness=3)
 			else:
 				break
 			dataIndex += 1
+
+		print("drawing text boxes...")
+		currPage = i
+		while currPage == i and boxIndex < len(textData):
+			# box: (pageNum, x0, x1, text, textHeight, topY)
+			currPage = textData[boxIndex][0]
+			if currPage == i:
+				leftX = int(textData[boxIndex][1] * imageWidth)
+				leftY = int(textData[boxIndex][5] * imageHeight)
+				rightX = int(textData[boxIndex][2] * imageWidth)
+				rightY = int((textData[boxIndex][4] * imageHeight) + leftY)
+
+				print("leftX:" + str(leftX) + " ,leftY:" + str(leftY) + ", rightXL:" 
+					+ str(rightX) + " ,rightY:" + str(rightY))
+
+				img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(0,220,30),thickness=3)
+			else:
+				break
+			boxIndex += 1
+
 
 		editedImageName = imageName[:len(imageName)-4] + "_edited.png"
 		print("writing to " + editedImageName + "...")
@@ -190,8 +216,8 @@ def draw_bounding_boxes(list, pageWidth, pageHeights):
 
 def create_text(width, height):
 	generator = synthetic_text.SyntheticText("fonts", ".",line_prob=0.0,line_thickness=70,line_var=0,mean_pad=10,
-	pad=0,gaus_noise=0,gaus_std=0.0000001,blur_std=0.01,hole_prob=0.0, hole_size=400,neighbor_gap_var=0,rot=0.1, 
-	use_warp=0.0,warp_std=[1,1.4], linesAboveAndBelow=False,useBrightness=False)
+		pad=0,gaus_noise=0,gaus_std=0.0000001,blur_std=0.01,hole_prob=0.0, hole_size=400,neighbor_gap_var=0,rot=0.1, 
+		use_warp=0.0,warp_std=[1,1.4], linesAboveAndBelow=False,useBrightness=False)
 
 	#Logic for getting strings to be the correct length - or at least a length that looks good!
 	widthHeightRatio = width / height
@@ -210,18 +236,70 @@ def create_text(width, height):
 def extract_pdf_text(pdfName):
 	print("extracting text...")
 	pdf = pdfplumber.open(pdfName)
+	pageNum = 0
+	boxList = []
 	for page in pdf.pages:
-		text = page.extract_text()
 		wordList = page.extract_words()
-		lineList = []
-		print(text)
-		print("height and width of page is " 
-		+ str(page.height) + " and " + str(page.width))
-		for word in wordList:
-			print(word)
-			print(str(word["x0"]) + "," + str(word["x1"]))
+		#print("wordlist is of type " + str(type(wordList)))
+		pageHeight = page.height
+		pageWidth = page.width
+		#print("height and width of page is " 
+		#+ str(pageHeight) + " and " + str(pageWidth))
+
+		lastWord = wordList[0]
+		box_x0 = lastWord['x0']
+		box_x1 = lastWord['x1']
+		textLine = lastWord['text']
+		lastWordHeight = lastWord['bottom'] - lastWord['top']
+		height = lastWordHeight
+		top = lastWord['top']
+
+		for word in wordList[1:]:
+			lastWordHeight = lastWord['bottom'] - lastWord['top']
+			wordHeight = word['bottom'] - word['top']
+			if(lastWordHeight < wordHeight):
+				height = wordHeight
+
+			#print("the space between '" + word['text'] + "' and '" + lastWord['text'] + "' is "
+			#+ str(word['x0'] - lastWord['x1']))
+			heightsToGapRatio = float(pageHeight) / float(wordHeight) / float(word['x0'] - lastWord['x1'])
 			
-			# use x0, x1 data differences to find the distance between text and group them?
+			#print("\t|___.> page height to wordHeight to wordGap ratio is " +
+			#str(heightsToGapRatio))
+
+			if heightsToGapRatio > 1.5: # ratio maybe should be tweaked to better detect word spacing?
+				#print("  CONTINUE an existing bounding box")
+				# continue box... append word, change x1
+				textLine = textLine + " " + word['text']
+				box_x1 = word['x1']
+			else:
+				#print("  CREATE a new bounding box with '" + textLine + "'")
+				boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
+						textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
+				#boxInfo = pageNum, x0, x1, text, height, top(y)
+
+				boxList.append(boxInfo)
+				#print("boxList size is now " + str(len(boxList)))
+				# create new bounding box
+				height = word['bottom'] - word['top']
+				top = word['top']
+				textLine = word['text']
+				box_x0 = word['x0']
+				box_x1 = word['x1']
+				
+			lastWord = word
+
+		#print("  CREATE a new bounding box with '" + textLine + "'")
+		#boxInfo = {'x0': float(box_x0) / float(pageWidth), 'x1': float(box_x1) / float(pageWidth), 
+				#'text': textLine, 'height': float(height) / float(pageHeight)}
+		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
+				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
+		print(boxInfo)
+		boxList.append(boxInfo)
+
+		pageNum += 1
+		
+	return  boxList
 
 
 args = read_args()
@@ -234,18 +312,14 @@ else:
 	resolutionSpecified = True
 
 pageWidth = 0.0
-
 pageCount = create_image(fileName, imageRes, resolutionSpecified)
 data = process_data(fileName, pageCount)
 drawData, pageWidth, pageHeights = data
+textData = extract_pdf_text(fileName)
 
 # data is a list of tuples (page, field type, x, y, w, h, pageHeight)
 # with text fields, theres a 7th element - the included text
-# draw_bounding_boxes(drawData, pageWidth, pageHeights)
-
-# using pdfplumber's built in text extraction:
-extract_pdf_text(fileName)
-
+draw_bounding_boxes(drawData, textData, pageWidth, pageHeights)
 
 # current struggles: pdf2json and pdfplumber consider the page in different dimensions
 # how do I connect fields and text?
