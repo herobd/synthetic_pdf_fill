@@ -213,11 +213,15 @@ def extract_pdf_text(pdfName):
 	for page in pdf.pages:
 		text = page.extract_text()
 		wordList = page.extract_words()
+		lineList = []
 		print(text)
 		print("height and width of page is " 
 		+ str(page.height) + " and " + str(page.width))
 		for word in wordList:
 			print(word)
+			print(str(word["x0"]) + "," + str(word["x1"]))
+			
+			# use x0, x1 data differences to find the distance between text and group them?
 
 
 args = read_args()
@@ -241,3 +245,21 @@ drawData, pageWidth, pageHeights = data
 
 # using pdfplumber's built in text extraction:
 extract_pdf_text(fileName)
+
+
+# current struggles: pdf2json and pdfplumber consider the page in different dimensions
+# how do I connect fields and text?
+# |
+# |
+# ---> convert pdfplumber's dimensions to pdf2json dimensions, then consider position
+#	   of nearest text?
+#
+# how do I draw more correct bounding boxes?
+# |
+# |
+# ---> extract words and then group words at the same x level
+#	 |
+#	 |
+#	 ---> if the x difference between the last and this oen passes a certain ratio
+#		  then they are probably different texts. All of this is given in the dict
+#		  that is returned by extract_words()
