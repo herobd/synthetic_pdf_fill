@@ -199,8 +199,8 @@ def draw_bounding_boxes(list, textData, pageWidth, pageHeights):
 				rightX = int(textData[boxIndex][2] * imageWidth)
 				rightY = int((textData[boxIndex][4] * imageHeight) + leftY)
 
-				print("leftX:" + str(leftX) + " ,leftY:" + str(leftY) + ", rightXL:" 
-					+ str(rightX) + " ,rightY:" + str(rightY))
+				#print("leftX:" + str(leftX) + " ,leftY:" + str(leftY) + ", rightXL:" 
+				#	+ str(rightX) + " ,rightY:" + str(rightY))
 
 				img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(0,220,30),thickness=3)
 			else:
@@ -263,17 +263,20 @@ def extract_pdf_text(pdfName):
 			#print("the space between '" + word['text'] + "' and '" + lastWord['text'] + "' is "
 			#+ str(word['x0'] - lastWord['x1']))
 			heightsToGapRatio = float(pageHeight) / float(wordHeight) / float(word['x0'] - lastWord['x1'])
+
+			# DO SOME LINE SPACING TESTING TO GARNER MULTILINE TEXT?
 			
 			#print("\t|___.> page height to wordHeight to wordGap ratio is " +
 			#str(heightsToGapRatio))
 
-			if heightsToGapRatio > 1.5: # ratio maybe should be tweaked to better detect word spacing?
-				#print("  CONTINUE an existing bounding box")
-				# continue box... append word, change x1
+			if string_match(word['text']):
+				continue
+			elif heightsToGapRatio > 1.5: # ratio maybe should be tweaked to better detect word spacing?
+				# CONTINUE box... append word, change x1
 				textLine = textLine + " " + word['text']
 				box_x1 = word['x1']
 			else:
-				#print("  CREATE a new bounding box with '" + textLine + "'")
+				# CREATE box
 				boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
 						textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
 				#boxInfo = pageNum, x0, x1, text, height, top(y)
@@ -294,7 +297,7 @@ def extract_pdf_text(pdfName):
 				#'text': textLine, 'height': float(height) / float(pageHeight)}
 		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
 				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-		print(boxInfo)
+		#print(boxInfo)
 		boxList.append(boxInfo)
 
 		pageNum += 1
