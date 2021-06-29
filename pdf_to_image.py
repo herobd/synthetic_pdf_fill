@@ -233,7 +233,7 @@ def create_text(width, height):
 	return img
 	
 
-def extract_pdf_text(pdfName):
+def extract_text_boxes(pdfName):
 	print("extracting text...")
 	pdf = pdfplumber.open(pdfName)
 	pageNum = 0
@@ -262,16 +262,22 @@ def extract_pdf_text(pdfName):
 
 			#print("the space between '" + word['text'] + "' and '" + lastWord['text'] + "' is "
 			#+ str(word['x0'] - lastWord['x1']))
-			heightsToGapRatio = float(pageHeight) / float(wordHeight) / float(word['x0'] - lastWord['x1'])
+			#print("pageHeight: "+str(pageHeight)+", wordHeight: "+str(wordHeight)+
+			#	", word['x0']-word['x1: " + str(float(word['x0'] - lastWord['x1'])))
+			if float(word['x0'] - lastWord['x1']) == 0.0:
+				heightsToGapRatio = float(wordHeight)
+			else:
+				heightsToGapRatio = float(wordHeight) / float(word['x0'] - lastWord['x1'])
 
-			# DO SOME LINE SPACING TESTING TO GARNER MULTILINE TEXT?
+			# DO SOME LINE SPACING TESTING TO GARNER
+			#  MULTILINE TEXT?
 			
-			#print("\t|___.> page height to wordHeight to wordGap ratio is " +
-			#str(heightsToGapRatio))
+			print("page height to wordHeight to wordGap ratio is " +
+			str(heightsToGapRatio))
 
 			if string_match(word['text']):
 				continue
-			elif heightsToGapRatio > 1.5: # ratio maybe should be tweaked to better detect word spacing?
+			elif heightsToGapRatio > 2.3: # ratio maybe should be tweaked to better detect word spacing?
 				# CONTINUE box... append word, change x1
 				textLine = textLine + " " + word['text']
 				box_x1 = word['x1']
@@ -282,13 +288,18 @@ def extract_pdf_text(pdfName):
 				#boxInfo = pageNum, x0, x1, text, height, top(y)
 
 				boxList.append(boxInfo)
-				#print("boxList size is now " + str(len(boxList)))
 				# create new bounding box
+				lineSpacing = word['top'] - (top + height)
+				#if word['top'] < top:
+				#	lineSpacingRatio = float(pageHeight) / float(wordHeight) / float(lineSpacing)
+				#	print("'" + textLine + "'")
+				#	print("\t|___.> line spacing ratio is " + str(lineSpacingRatio))
+				print("\ttextline is " + textLine)
+				box_x0 = word['x0']
+				box_x1 = word['x1']
 				height = word['bottom'] - word['top']
 				top = word['top']
 				textLine = word['text']
-				box_x0 = word['x0']
-				box_x1 = word['x1']
 				
 			lastWord = word
 
@@ -297,7 +308,7 @@ def extract_pdf_text(pdfName):
 				#'text': textLine, 'height': float(height) / float(pageHeight)}
 		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
 				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-		#print(boxInfo)
+		print(boxInfo)
 		boxList.append(boxInfo)
 
 		pageNum += 1
@@ -314,11 +325,10 @@ if imageRes == 0:
 else:
 	resolutionSpecified = True
 
-pageWidth = 0.0
 pageCount = create_image(fileName, imageRes, resolutionSpecified)
 data = process_data(fileName, pageCount)
 drawData, pageWidth, pageHeights = data
-textData = extract_pdf_text(fileName)
+textData = extract_text_boxes(fileName)
 
 # data is a list of tuples (page, field type, x, y, w, h, pageHeight)
 # with text fields, theres a 7th element - the included text
