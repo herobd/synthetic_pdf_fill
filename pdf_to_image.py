@@ -10,7 +10,7 @@ import img_f
 import pdfplumber
 import numpy as np
 
-
+# reads in provided file name and, if specified, a resolution
 def read_args():
 	if __name__ == "__main__":
 		imageRes = 0 # if no command line argument passed, resolution is 0
@@ -25,11 +25,12 @@ def read_args():
 	return (fileName, imageRes)
 
 
-def create_image(fileName, imageRes, resolutionSpecified):
-	with pdfplumber.open(fileName) as pdf:
+# takes PDF file and converts it to a numpy array, and saves it page by page in a .PNG file
+def create_image(pdfName, imageRes, resolutionSpecified):
+	with pdfplumber.open(pdfName) as pdf:
 		pageCount = 0
-		size = len(fileName)
-		dirName = fileName[:size - 4] # removes .pdf file extension
+		size = len(pdfName)
+		dirName = pdfName[:size - 4] # removes .pdf file extension
 
 		if not os.path.exists(dirName):
 			os.mkdir(dirName) # if directory doesn't exist, create one to store new images
@@ -74,17 +75,18 @@ def create_image(fileName, imageRes, resolutionSpecified):
 	return pageCount
 
 
-# to remove lines for text containing only '_', ' ', or '.'
-def string_match(string, search=re.compile(r'[^_ .]').search):
+# to remove lines for text containing only the text found with the '[]'
+def string_match(string, search=re.compile(r'[^_ .()]').search):
 	return not bool(search(string))
 
 
-def process_data(fileName, pageCount):
+# pulls box and field data from generated JSON file
+def process_data(pdfName, pageCount):
 	print("\nloading json file...")
-	with open(fileName[:len(fileName)-4] + ".json", "r") as f:
+	with open(pdfName[:len(pdfName)-4] + ".json", "r") as f:
 		pdfInfo = json.load(f)
 	
-	list = []
+	fieldData = []
 	i = 0
 	pageWidth = pdfInfo['formImage']['Width']
 	pageHeights = []
@@ -114,29 +116,30 @@ def process_data(fileName, pageCount):
 			# some fields do not have names
 			try:
 				fieldName = field['TU']
-				print(str(i) + ". FIELD: " + field['TU'])
+				#print(str(i) + ". FIELD: " + field['TU'])
 			except:
 				fieldName = None
-				print(str(i) + ". FIELD name does not exist!")
+				#print(str(i) + ". FIELD name does not exist!")
 			tuple = (i, fieldName, field['x'], field['y'], field['w'], field['h'])
-			list.append(tuple)
+			fieldData.append(tuple)
 
 		for boxset in pdfInfo['formImage']['Pages'][i]['Boxsets']:
 			for box in boxset['boxes']:
 				try:
 					boxName = box['TU']
-					print(str(i) + ". BOX: " + box['TU'])
+					#print(str(i) + ". BOX: " + box['TU'])
 				except:
 					boxName = None
-					print(str(i) + ". BOX name does not exist!")
+					#print(str(i) + ". BOX name does not exist!")
 				tuple = (i, boxName, box['x'], box['y'], box['w'], box['h'])
-				list.append(tuple)
+				fieldData.append(tuple)
 
 		i += 1
 
-	return list, pageWidth, pageHeights
+	return fieldData, pageWidth, pageHeights
 
 
+# old print function to make sure that all data that can be pulled from JSON is pulled... needs updating
 def print_list(list):
 	counter = 0
 	for dim in list:
@@ -149,12 +152,13 @@ def print_list(list):
 		counter += 1
 
 
-def draw_bounding_boxes(list, textData, pageWidth, pageHeights):
+# takes field and text data, along with page information, to draw bounding boxes
+def draw_bounding_boxes(fieldData, textData, pageWidth, pageHeights):
 	i = 0
 	dataIndex = 0
 	boxIndex = 0
 	while i < pageCount:
-		imageName = (fileName[:len(fileName)-4] + "/page" + str(i) + ".png")
+		imageName = (pdfName[:len(pdfName)-4] + "/page" + str(i) + ".png")
 		img = img_f.imread(imageName,color=True)
 		imageHeight = img.shape[0]
 		imageWidth = img.shape[1]
@@ -164,13 +168,13 @@ def draw_bounding_boxes(list, textData, pageWidth, pageHeights):
 
 		print("drawing field boxes...")
 		currPage = i
-		while currPage == i and dataIndex < len(list):
-			currPage = list[dataIndex][0]
+		while currPage == i and dataIndex < len(fieldData):
+			currPage = fieldData[dataIndex][0]
 			if currPage == i: # draw
-				x = list[dataIndex][2] * widthMultiplier
-				y = list[dataIndex][3] * heightMultiplier
-				w = list[dataIndex][4] * widthMultiplier
-				h = list[dataIndex][5] * heightMultiplier 
+				x = fieldData[dataIndex][2] * widthMultiplier
+				y = fieldData[dataIndex][3] * heightMultiplier
+				w = fieldData[dataIndex][4] * widthMultiplier
+				h = fieldData[dataIndex][5] * heightMultiplier 
 
 				leftX = int(x)
 				leftY = int(y)
@@ -206,6 +210,7 @@ def draw_bounding_boxes(list, textData, pageWidth, pageHeights):
 		i += 1
 
 
+# creates a numpy array image of text that can be inserted into the form
 def create_text(width, height):
 	generator = synthetic_text.SyntheticText("fonts", ".",line_prob=0.0,line_thickness=70,line_var=0,mean_pad=10,
 		pad=0,gaus_noise=0,gaus_std=0.0000001,blur_std=0.01,hole_prob=0.0, hole_size=400,neighbor_gap_var=0,rot=0.1, 
@@ -224,6 +229,7 @@ def create_text(width, height):
 	return img
 	
 
+# finds and draws boxes around text entity... needs work with multiline texts
 def extract_text_boxes(pdfName):
 	print("extracting text...")
 	pdf = pdfplumber.open(pdfName)
@@ -276,7 +282,7 @@ def extract_text_boxes(pdfName):
 				boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
 						textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
 				#boxInfo = pageNum, x0, x1, text, height, top(y)
-
+				print("text is: " + textLine + " with height " + str(height))
 				boxList.append(boxInfo)
 				# create new bounding box
 				lineSpacing = word['top'] - (top + height)
@@ -304,8 +310,30 @@ def extract_text_boxes(pdfName):
 	return  boxList
 
 
+# seeks to find the connection between text and associated fields and boxes
+def field_text_relations(fieldData, textData):
+	print("finding the relationship between boxes, fields, and text!") 
+	for field in fieldData:
+		print(field)
+	# (f)=FIELD/BOX, (t)=TEXT
+	# ////// WHAT SHOULD TOLERANCES BE? \\\\\\
+	# // HOW DO I MAKE POSITION SEARCHABLE? \\
+
+	# finding numbers to compare to tolerances below:
+
+	# LABEL IS:
+	# 	LEFT OF FIELD:
+	# ---> x0(t) - (x(f) + w(f))
+	# 	RIGHT OF FIELD:
+	# ---> x1(t) - x(f)
+	# 	TOP OF FIELD: 
+	# ---> y(f) - (top(t) + height(t))
+	# 	BOTTOM OF FIELD:
+	# ---> top(t) - (y(f) + h(f))
+
+
 args = read_args()
-fileName = args[0]
+pdfName = args[0]
 imageRes = args[1]
 if imageRes == 0:
 	print("no resolution specified")
@@ -313,11 +341,10 @@ if imageRes == 0:
 else:
 	resolutionSpecified = True
 
-pageCount = create_image(fileName, imageRes, resolutionSpecified)
-data = process_data(fileName, pageCount)
-drawData, pageWidth, pageHeights = data
-textData = extract_text_boxes(fileName)
+pageCount = create_image(pdfName, imageRes, resolutionSpecified)
+fieldData, pageWidth, pageHeights = process_data(pdfName, pageCount)
+textData = extract_text_boxes(pdfName)
 
 # data is a list of tuples (page, field type, x, y, w, h, pageHeight)
 # with text fields, theres a 7th element - the included text
-draw_bounding_boxes(drawData, textData, pageWidth, pageHeights)
+draw_bounding_boxes(fieldData, textData, pageWidth, pageHeights)
