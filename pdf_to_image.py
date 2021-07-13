@@ -76,7 +76,7 @@ def create_image(pdfName, imageRes, resolutionSpecified):
 
 
 # to remove lines for text containing only the text found with the '[]'
-def string_match(string, search=re.compile(r'[^_ .()]').search):
+def string_match(string, search=re.compile(r'[^_ .()•[\]]').search):
 	return not bool(search(string))
 
 
@@ -88,7 +88,7 @@ def process_data(pdfName, pageCount):
 	
 	fieldData = []
 	i = 0
-	pageWidth = pdfInfo['formImage']['Width']
+	#pageWidth = pdfInfo['formImage']['Width']
 	pageHeights = []
 	while i < pageCount:
 		pageHeight = pdfInfo['formImage']['Pages'][i]['Height']
@@ -136,7 +136,7 @@ def process_data(pdfName, pageCount):
 
 		i += 1
 
-	return fieldData, pageWidth, pageHeights
+	return fieldData, pageHeights
 
 
 # old print function to make sure that all data that can be pulled from JSON is pulled... needs updating
@@ -153,7 +153,7 @@ def print_list(list):
 
 
 # takes field and text data, along with page information, to draw bounding boxes
-def draw_bounding_boxes(fieldData, textData, pageWidth, pageHeights):
+def draw_bounding_boxes(fieldData, textData, pageWidths, pageHeights):
 	i = 0
 	dataIndex = 0
 	boxIndex = 0
@@ -164,7 +164,8 @@ def draw_bounding_boxes(fieldData, textData, pageWidth, pageHeights):
 		imageWidth = img.shape[1]
 
 		heightMultiplier = imageHeight / pageHeights[i]
-		widthMultiplier = imageWidth / pageWidth
+		widthMultiplier = imageWidth / pageWidths[i]
+		# ^^^^^ why is there only one page width??
 
 		print("drawing field boxes...")
 		currPage = i
@@ -203,7 +204,6 @@ def draw_bounding_boxes(fieldData, textData, pageWidth, pageHeights):
 				break
 			boxIndex += 1
 
-
 		editedImageName = imageName[:len(imageName)-4] + "_edited.png"
 		print("writing to " + editedImageName + "...")
 		img_f.imwrite(imageName[:len(imageName)-4] + "_edited.png", img)
@@ -235,10 +235,12 @@ def extract_text_boxes(pdfName):
 	pdf = pdfplumber.open(pdfName)
 	pageNum = 0
 	boxList = []
+	pageWidths = []
 	for page in pdf.pages:
 		wordList = page.extract_words()
 		pageHeight = page.height
 		pageWidth = page.width
+		pageWidths.append(pageHeights[pageNum] * float(pageWidth / pageHeight))
 		#print("height and width of page is " 
 		#+ str(pageHeight) + " and " + str(pageWidth))
 
@@ -281,11 +283,11 @@ def extract_text_boxes(pdfName):
 				# CREATE box
 				boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
 						textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-				#boxInfo = pageNum, x0, x1, text, height, top(y)
-				print("text is: " + textLine + " with height " + str(height))
+				# boxInfo = pageNum, x0, x1, text, height, top(y)
+				#print("text is: " + textLine + " with height " + str(height))
 				boxList.append(boxInfo)
 				# create new bounding box
-				lineSpacing = word['top'] - (top + height)
+				#lineSpacing = word['top'] - (top + height)
 				#if word['top'] < top:
 				#	lineSpacingRatio = float(pageHeight) / float(wordHeight) / float(lineSpacing)
 				#	print("'" + textLine + "'")
@@ -302,34 +304,91 @@ def extract_text_boxes(pdfName):
 		#print("  CREATE a new bounding box with '" + textLine + "'")
 		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
 				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-		print(boxInfo)
+		#print(boxInfo)
 		boxList.append(boxInfo)
 
 		pageNum += 1
 		
-	return  boxList
+	return boxList, pageWidths
 
 
 # seeks to find the connection between text and associated fields and boxes
-def field_text_relations(fieldData, textData):
+def field_text_relations(fieldData, textData, pageWidths, pageHeights):
 	print("finding the relationship between boxes, fields, and text!") 
+	totalTextCount = 0
+	pageTextCount = 0
+	currPage = 0
+
+	# don't want to constantly be reading in an image
+	imageName = (pdfName[:len(pdfName)-4] + "/page" + str(currPage) + ".png")
+	img = img_f.imread(imageName,color=True)
+	imageHeight = img.shape[0]
+	imageWidth = img.shape[1]
+	#print("Page " + str(currPage) + " has height " + str(imageHeight) + " & width " + str(imageWidth))
+
 	for field in fieldData:
-		print(field)
-	# (f)=FIELD/BOX, (t)=TEXT
-	# ////// WHAT SHOULD TOLERANCES BE? \\\\\\
-	# // HOW DO I MAKE POSITION SEARCHABLE? \\
+		print("\n------ new field ------\n")
+		# should be ordered by page, so iterating through will work
+		if field[0] != currPage:
+			print("\n------ new page ------\n")
+			currPage = field[0]
+			imageName = (pdfName[:len(pdfName)-4] + "/page" + str(currPage) + ".png")
+			img = img_f.imread(imageName,color=True)
+			imageHeight = img.shape[0]
+			imageWidth = img.shape[1]
 
-	# finding numbers to compare to tolerances below:
+			#print("Page " + str(currPage) + " has height " + str(imageHeight) + " & width " + str(imageWidth))
+			pageTextCount = totalTextCount
+		else:
+			# gotta keep textCount to iterate through until a new page
+			totalTextCount = pageTextCount
 
-	# LABEL IS:
-	# 	LEFT OF FIELD:
-	# ---> x0(t) - (x(f) + w(f))
-	# 	RIGHT OF FIELD:
-	# ---> x1(t) - x(f)
-	# 	TOP OF FIELD: 
-	# ---> y(f) - (top(t) + height(t))
-	# 	BOTTOM OF FIELD:
-	# ---> top(t) - (y(f) + h(f))
+		pageHeight = pageHeights[currPage]	
+		pageWidth = pageWidths[currPage]
+		heightMultiplier = imageHeight / pageHeight
+		widthMultiplier = imageWidth / pageWidth
+
+		field_x = int(field[2] * widthMultiplier)
+		field_y = int(field[3] * heightMultiplier)
+		field_w = int(field[4] * widthMultiplier)
+		field_h = int(field[5] * heightMultiplier) 
+
+		#leftX = int(x)
+		#leftY = int(y)
+		#rightX = int(x + w)
+		#rightY = int(y + h)
+
+		if field[1] == None:
+			for text in textData:
+				#tuple = (i, boxName, box['x'], box['y'], box['w'], box['h'])
+				#boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
+				#textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
+				#print(str(field) + str(text))
+				# TEXT INFO (ratios) -> [0]:pageNum, [1]:x0, [2]:x1, [3]:textLine, [4]:height, [5]:top
+				# BOX INFO -> [0]:pageNum, [1]:boxName, [2]:x, [3]:y, [4]:w, [5]:h
+				if text[0] == field[0]:
+					# this is where all the work should happen
+					totalTextCount += 1
+
+					# TEXT INFO
+					text_x0 = int(text[1] * imageWidth)
+					text_x1 = int(text[2] * imageWidth)
+					text_h = int(text[4] * imageHeight)
+					text_top = int(text[5] * imageHeight)
+
+					leftMargin = text_x1 - (field_x + field_w)
+					rightMargin = text_x0 - field_x
+					topMargin = field_y - (text_top + text_h)
+					bottomMargin = text_top - (field_y + field_h)
+
+					# convert to ratio to disregard differences in page size/resolution
+					print("FIELD: x=" + str(field_x) + ", y=" + str(field_y) + ", w=" + str(field_w) + ", h=" + str(field_h))
+					print("TEXT: x0=" + str(text_x0) + ", x1=" + str(text_x1) + ", h=" + str(text_h) + ", top=" + str(text_top))
+					print("LEFT:" + str(leftMargin) + ", RIGHT:" + str(rightMargin) + 
+						", TOP:" + str(topMargin) + ", BOTTOM:" + str(bottomMargin))
+					print("---> '" + text[3] + "'\n")
+
+					# bunch of ifs to check conditions?
 
 
 args = read_args()
@@ -342,9 +401,7 @@ else:
 	resolutionSpecified = True
 
 pageCount = create_image(pdfName, imageRes, resolutionSpecified)
-fieldData, pageWidth, pageHeights = process_data(pdfName, pageCount)
-textData = extract_text_boxes(pdfName)
-
-# data is a list of tuples (page, field type, x, y, w, h, pageHeight)
-# with text fields, theres a 7th element - the included text
-draw_bounding_boxes(fieldData, textData, pageWidth, pageHeights)
+fieldData, pageHeights = process_data(pdfName, pageCount)
+textData, pageWidths = extract_text_boxes(pdfName)
+draw_bounding_boxes(fieldData, textData, pageWidths, pageHeights)
+field_text_relations(fieldData, textData, pageWidths, pageHeights)
