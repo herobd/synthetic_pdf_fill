@@ -9,6 +9,7 @@ import img_f
 
 import pdfplumber
 import numpy as np
+import editdistance as ed
 
 # reads in provided file name and, if specified, a resolution
 def read_args():
@@ -206,7 +207,7 @@ def draw_bounding_boxes(fieldData, textData, pageWidths, pageHeights):
 
 		editedImageName = imageName[:len(imageName)-4] + "_edited.png"
 		print("writing to " + editedImageName + "...")
-		img_f.imwrite(imageName[:len(imageName)-4] + "_edited.png", img)
+		img_f.imwrite(editedImageName, img)
 		i += 1
 
 
@@ -241,8 +242,6 @@ def extract_text_boxes(pdfName):
 		pageHeight = page.height
 		pageWidth = page.width
 		pageWidths.append(pageHeights[pageNum] * float(pageWidth / pageHeight))
-		#print("height and width of page is " 
-		#+ str(pageHeight) + " and " + str(pageWidth))
 
 		lastWord = wordList[0]
 		box_x0 = lastWord['x0']
@@ -301,10 +300,8 @@ def extract_text_boxes(pdfName):
 				
 			lastWord = word
 
-		#print("  CREATE a new bounding box with '" + textLine + "'")
 		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
 				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-		#print(boxInfo)
 		boxList.append(boxInfo)
 
 		pageNum += 1
@@ -320,24 +317,23 @@ def field_text_relations(fieldData, textData, pageWidths, pageHeights):
 	currPage = 0
 
 	# don't want to constantly be reading in an image
-	imageName = (pdfName[:len(pdfName)-4] + "/page" + str(currPage) + ".png")
+	imageName = (pdfName[:len(pdfName)-4] + "/page" + str(currPage) + "_edited.png")
 	img = img_f.imread(imageName,color=True)
 	imageHeight = img.shape[0]
 	imageWidth = img.shape[1]
-	#print("Page " + str(currPage) + " has height " + str(imageHeight) + " & width " + str(imageWidth))
 
 	for field in fieldData:
-		print("\n------ new field ------\n")
-		# should be ordered by page, so iterating through will work
 		if field[0] != currPage:
 			print("\n------ new page ------\n")
+			print("writing to " + imageName + "...")
+			img_f.imwrite(imageName, img)
 			currPage = field[0]
-			imageName = (pdfName[:len(pdfName)-4] + "/page" + str(currPage) + ".png")
+			imageName = imageName[:len(imageName)-12] + str(currPage) + "_edited.png"
+			imageName = (imageName)
 			img = img_f.imread(imageName,color=True)
 			imageHeight = img.shape[0]
 			imageWidth = img.shape[1]
 
-			#print("Page " + str(currPage) + " has height " + str(imageHeight) + " & width " + str(imageWidth))
 			pageTextCount = totalTextCount
 		else:
 			# gotta keep textCount to iterate through until a new page
@@ -353,17 +349,77 @@ def field_text_relations(fieldData, textData, pageWidths, pageHeights):
 		field_w = int(field[4] * widthMultiplier)
 		field_h = int(field[5] * heightMultiplier) 
 
-		#leftX = int(x)
-		#leftY = int(y)
-		#rightX = int(x + w)
-		#rightY = int(y + h)
+		leftX = int(field_x)
+		leftY = int(field_y)
+		rightX = int(field_x + field_w)
+		rightY = int(field_y + field_h)
 
-		if field[1] == None:
+		if field[1] is not None:
+			#print("finding field label from available text")
+			fieldName = field[1]
+			minimumDist = 1000
+			minimumString = "DEFAULT"
+			# Do I need to show that this is a required field somewhere or?
+			fieldName = fieldName.replace(" (required) ", "")
 			for text in textData:
-				#tuple = (i, boxName, box['x'], box['y'], box['w'], box['h'])
-				#boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
-				#textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-				#print(str(field) + str(text))
+				editDistance = ed.eval(fieldName, text[3])
+
+				if editDistance < minimumDist:
+					minimumDist = editDistance
+					minimumString = text[3]
+
+				# no longer on the same page, so it can't be any further in the list
+				#if currPage != text[0]:
+				#	break
+			
+			# sometimes, the closest edit distance is the text that we want
+			# however, sometimes, it's not. How do we double check here?
+			# should I be checking if the field name is contained within a textLine?
+			#print("edit between " + minimumString + " and " + fieldName + " is " + str(minimumDist))
+
+			if minimumDist != 0:
+				words = fieldName.split(" ")
+				#print(words)
+				
+				list = []
+				i = 0
+				for text in textData:
+					#if currPage != text[0]:
+					#	break
+					list.append(0)
+					for word in words:
+						if word in text:
+							list[i] += 1
+					i += 1
+
+				matchList = []
+				i = 0
+				match = 0
+				for x in list:
+					if x < match:
+						continue
+					if x > match:
+						matchList.clear()
+						match = x
+
+					matchList.append(i)
+					i += 1
+
+				minimumDist = 1000
+				minimumString = ""
+				if len(matchList) > 1:
+					for match in matchList:
+						editDistance = ed.eval(fieldName, textData[match][3])
+						if editDistance < minimumDist:
+							minimumDist = editDistance
+							minimumString = textData[match][3]
+
+			print("the match for '" + fieldName + "' is '" + minimumString + "'")
+
+
+		elif field[1] is None:
+			print("\n------ new field ------\n")
+			for text in textData:
 				# TEXT INFO (ratios) -> [0]:pageNum, [1]:x0, [2]:x1, [3]:textLine, [4]:height, [5]:top
 				# BOX INFO -> [0]:pageNum, [1]:boxName, [2]:x, [3]:y, [4]:w, [5]:h
 				if text[0] == field[0]:
@@ -376,19 +432,42 @@ def field_text_relations(fieldData, textData, pageWidths, pageHeights):
 					text_h = int(text[4] * imageHeight)
 					text_top = int(text[5] * imageHeight)
 
-					leftMargin = text_x1 - (field_x + field_w)
-					rightMargin = text_x0 - field_x
-					topMargin = field_y - (text_top + text_h)
-					bottomMargin = text_top - (field_y + field_h)
+					# need to be in ratios to account for different page sizes
+					leftMargin = (field_x - text_x1) / imageWidth
+					rightMargin = (text_x0 - (field_x + field_w)) / imageWidth
+					topMargin = (field_y - (text_top + text_h)) / imageHeight
+					bottomMargin = (text_top - (field_y + field_h)) / imageHeight
 
-					# convert to ratio to disregard differences in page size/resolution
+					# DRAWS A DIFFERENT COLORED BOX AROUND UNASSOCIATED FIELDS (just so I can figure out margins and such)
+					img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(0,0,255),thickness=5)
+
+					isRight = True
+					isLeft = True
+					isAbove = True
+					isBelow = True
+
+					# RADIO GROUPS -> NEED TO BE PRESERVED SO ONLY ONE GETS FILLED OUT, ONE HEADER? -> all get same header, but not 
+					# individual label
 					print("FIELD: x=" + str(field_x) + ", y=" + str(field_y) + ", w=" + str(field_w) + ", h=" + str(field_h))
 					print("TEXT: x0=" + str(text_x0) + ", x1=" + str(text_x1) + ", h=" + str(text_h) + ", top=" + str(text_top))
 					print("LEFT:" + str(leftMargin) + ", RIGHT:" + str(rightMargin) + 
 						", TOP:" + str(topMargin) + ", BOTTOM:" + str(bottomMargin))
-					print("---> '" + text[3] + "'\n")
+					print(" >TEXT: '" + text[3] + "'\n")
+
+					if(rightMargin < 0):
+						isRight = False
+					if(leftMargin < 0):
+						isLeft = False
+					if(topMargin < 0):
+						isAbove = False
+					if(bottomMargin < 0):
+						isBelow = False
 
 					# bunch of ifs to check conditions?
+		else:
+			print("\nnew field for " + field[1])
+
+	img_f.imwrite(imageName, img)
 
 
 args = read_args()
