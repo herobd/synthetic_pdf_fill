@@ -6,8 +6,10 @@ https://github.com/jsvine/pdfplumber
 
 To run all processing at once, the command will take this form:
  './pdf_processing.sh -f path/to/file -r int(resolution) -p true'
+
  FOR EXAMPLE:
  ./pdf_processing.sh -f pdfs/my_pdf.pdf -r 300 -p true
+ 
  The above example would run on 'my_pdf.pdf' inside the 'pdfs' directory. The resulting generation resolution of the image would be 300, and separate human readable JSON would be generated.
 
  '-f' specifies a PDF file; this is required. Specify the path to the file from your current directory.
