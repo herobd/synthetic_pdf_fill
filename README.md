@@ -4,4 +4,4 @@ To run these programs, both pdf2json and pdfplumber are required. They can be fo
 https://github.com/modesty/pdf2json
 https://github.com/jsvine/pdfplumber
 
-To run all utilities as one command, the script 'pdf_processing.sh' will do the trick. It has two flags: -f, which specifies the file path to a given PDF, and -r, which specifies a resolution for the outputted PDF as a PNG. While the -r flag is optional, the -f flag must be specified or an error will occur.
+To run all processing at once, the command will take this form: ./pdf_processing -f path/to/file -r resolution (int) -p true. -f specifies a file; this is required. -r specifies a resolution for the PDFs converted to images - this is optional and will default to 150 if no resolution is specified. -p determines whether human-readable JSON should be generated. If set to true "as in '-p true'", the JSON will be pretty printed. If anything else is used or the flag is dropped, no pretty printed JSON will be generated.

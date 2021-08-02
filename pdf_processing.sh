@@ -3,10 +3,11 @@
 # converts pdf2json, generates a human-readable form of that,
 # then converts the pdf to an image with the specified resolution
 
-while getopts f:r: opt; do
+while getopts f:r:p: opt; do
 	case "$opt" in
 		f) file=${OPTARG};;
 		r) image_res=${OPTARG};;
+		p) pretty_print=${OPTARG};;
 	esac
 done
 
@@ -27,13 +28,18 @@ else
 	echo "${file::-4}.json already exists!"
 fi
 
-# convert JSON to human readable form if not already done
-if [[ ! -f "${file::-4}PrettyPrinted.json" ]]
-then
-	python3 pretty_printing.py $json_file
-	echo "creating ${file::-4}PrettyPrinted.json..."
+# convert JSON to human readable form if not already done (if flag -p = true)
+if [[ $pretty_print == true ]]
+	then
+		if [[ ! -f "${file::-4}PrettyPrinted.json" ]]
+			then
+			python3 pretty_printing.py $json_file
+			echo "creating ${file::-4}PrettyPrinted.json..." echo echo
+		else
+			echo "${file::-4}PrettyPrinted.json already exists!"
+		fi
 else
-	echo "${file::-4}PrettyPrinted.json already exists!"
+	echo "pretty_print flag was not set"
 fi
 
 
