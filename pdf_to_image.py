@@ -1,5 +1,5 @@
 import os
-from synthetic_text_gen.synthetic_text_gen import synthetic_text
+#from synthetic_text_gen.synthetic_text_gen import synthetic_text
 import sys
 import json
 import re
@@ -27,9 +27,8 @@ def read_args():
 
 
 # takes PDF file and converts it to a numpy array, and saves it page by page in a .PNG file
-def create_image():
+def create_image(imageRes, pdfName, resolutionSpecified):
 	with pdfplumber.open(pdfName) as pdf:
-		global imageRes
 		pageCount = 0
 		size = len(pdfName)
 		dirName = pdfName[:size - 4] # removes .pdf file extension
@@ -80,7 +79,7 @@ def string_match(string, search=re.compile(r'[^_ .()•[\]]').search):
 
 
 # pulls box and field data from generated JSON file
-def process_data():
+def process_data(pdfName, pageCount):
 	print("\nloading json file...")
 	with open(pdfName[:len(pdfName)-4] + ".json", "r") as file:
 		pdfInfo = json.load(file)
@@ -127,8 +126,65 @@ def print_list(list):
 		counter += 1
 
 
+# finds and draws boxes around text entity... needs work with multiline texts
+def extract_text_boxes(pdfName, pageHeights):
+	print("extracting text...")
+	pdf = pdfplumber.open(pdfName)
+	pageNum = 0
+	textData = []
+	pageWidths = []
+	for page in pdf.pages:
+		wordList = page.extract_words()
+		pageHeight = page.height
+		pageWidth = page.width
+		pageWidths.append(pageHeights[pageNum] * float(pageWidth / pageHeight))
+
+		lastWord = wordList[0]
+		box_x0 = lastWord['x0']
+		box_x1 = lastWord['x1']
+		textLine = lastWord['text']
+		lastWordHeight = lastWord['bottom'] - lastWord['top']
+		height = lastWordHeight
+		top = lastWord['top']
+
+		for word in wordList[1:]:
+			lastWordHeight = lastWord['bottom'] - lastWord['top']
+			wordHeight = word['bottom'] - word['top']
+			if(lastWordHeight < wordHeight):
+				height = wordHeight
+
+			if float(word['x0'] - lastWord['x1']) == 0.0:
+				heightsToGapRatio = float(wordHeight)
+			else:
+				heightsToGapRatio = float(wordHeight) / float(word['x0'] - lastWord['x1'])
+
+			if string_match(word['text']):
+				continue
+			elif heightsToGapRatio > 2.3: # ratio maybe should be tweaked to better detect word spacing?
+				textLine = textLine + " " + word['text']
+				box_x1 = word['x1']
+			else:
+				boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
+						textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
+				textData.append(boxInfo)
+				box_x0 = word['x0']
+				box_x1 = word['x1']
+				height = word['bottom'] - word['top']
+				top = word['top']
+				textLine = word['text']
+				
+			lastWord = word
+
+		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
+				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
+		textData.append(boxInfo)
+		pageNum += 1
+		
+	return textData, pageWidths
+
+
 # takes field and text data, along with page information, to draw bounding boxes
-def draw_bounding_boxes():
+def draw_bounding_boxes(pageCount, pdfName, pageHeights, pageWidths, fieldData, textData):
 	i = 0
 	dataIndex = 0
 	boxIndex = 0
@@ -137,7 +193,6 @@ def draw_bounding_boxes():
 		img = img_f.imread(imageName,color=True)
 		imageHeight = img.shape[0]
 		imageWidth = img.shape[1]
-
 		heightMultiplier = imageHeight / pageHeights[i]
 		widthMultiplier = imageWidth / pageWidths[i]
 
@@ -181,103 +236,84 @@ def draw_bounding_boxes():
 
 
 # creates a numpy array image of text that can be inserted into the form, needs updating to function as intended
-def create_text(width, height):
-	generator = synthetic_text.SyntheticText("fonts", ".",line_prob=0.0,line_thickness=70,line_var=0,mean_pad=10,
-		pad=0,gaus_noise=0,gaus_std=0.0000001,blur_std=0.01,hole_prob=0.0, hole_size=400,neighbor_gap_var=0,rot=0.1, 
-		use_warp=0.0,warp_std=[1,1.4], linesAboveAndBelow=False,useBrightness=False)
-
-	widthHeightRatio = width / height
-	numChars = int(widthHeightRatio * 1.5)
-	img,text,fnt = generator.getSample(numChars)
-
-	img = 255 - (img * 255)
-	img = img_f.resize(img, (int(height), int(width)))
-	return img
+#def create_text(width, height):
+#	generator = synthetic_text.SyntheticText("fonts", ".",line_prob=0.0,line_thickness=70,line_var=0,mean_pad=10,
+#		pad=0,gaus_noise=0,gaus_std=0.0000001,blur_std=0.01,hole_prob=0.0, hole_size=400,neighbor_gap_var=0,rot=0.1, 
+#		use_warp=0.0,warp_std=[1,1.4], linesAboveAndBelow=False,useBrightness=False)
+#
+#	widthHeightRatio = width / height
+#	numChars = int(widthHeightRatio * 1.5)
+#	img,text,fnt = generator.getSample(numChars)
+#
+#	img = 255 - (img * 255)
+#	img = img_f.resize(img, (int(height), int(width)))
+#	return img
 	
 
-# finds and draws boxes around text entity... needs work with multiline texts
-def extract_text_boxes():
-	print("extracting text...")
-	pdf = pdfplumber.open(pdfName)
-	pageNum = 0
-	boxList = []
-	pageWidths = []
-	for page in pdf.pages:
-		wordList = page.extract_words()
-		pageHeight = page.height
-		pageWidth = page.width
-		pageWidths.append(pageHeights[pageNum] * float(pageWidth / pageHeight))
+# seeks to find the connection between text and associated fields and boxes
+def field_text_relations(textData, pdfName, fieldData, pageHeights, pageWidths):
+	pageEndTextCount = 0
+	pageBeginTextCount = 0
+	currPage = 0
+	imageName = (pdfName[:len(pdfName)-4] + "/page" + str(currPage) + "_edited.png")
+	img = img_f.imread(imageName,color=True)
+	imageHeight = img.shape[0]
+	imageWidth = img.shape[1]
 
-		lastWord = wordList[0]
-		box_x0 = lastWord['x0']
-		box_x1 = lastWord['x1']
-		textLine = lastWord['text']
-		lastWordHeight = lastWord['bottom'] - lastWord['top']
-		height = lastWordHeight
-		top = lastWord['top']
+	for field in fieldData:
+		if field[0] != currPage:
+			img_f.imwrite(imageName, img)
+			currPage = field[0]
+			imageName = imageName[:len(imageName)-12] + str(currPage) + "_edited.png"
+			imageName = (imageName)
+			img = img_f.imread(imageName,color=True)
+			imageHeight = img.shape[0]
+			imageWidth = img.shape[1]
+			print("setting pageEndTextCount(" + str(pageEndTextCount) + ") to pageBeginTextCount(" + str(pageBeginTextCount) + ")")
+			pageEndTextCount = pageBeginTextCount
+		else:
+			pageBeginTextCount = pageEndTextCount
 
-		for word in wordList[1:]:
-			lastWordHeight = lastWord['bottom'] - lastWord['top']
-			wordHeight = word['bottom'] - word['top']
-			if(lastWordHeight < wordHeight):
-				height = wordHeight
-
-			if float(word['x0'] - lastWord['x1']) == 0.0:
-				heightsToGapRatio = float(wordHeight)
-			else:
-				heightsToGapRatio = float(wordHeight) / float(word['x0'] - lastWord['x1'])
-
-			if string_match(word['text']):
-				continue
-			elif heightsToGapRatio > 2.3: # ratio maybe should be tweaked to better detect word spacing?
-				textLine = textLine + " " + word['text']
-				box_x1 = word['x1']
-			else:
-				boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
-						textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-				boxList.append(boxInfo)
-				box_x0 = word['x0']
-				box_x1 = word['x1']
-				height = word['bottom'] - word['top']
-				top = word['top']
-				textLine = word['text']
-				
-			lastWord = word
-
-		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
-				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
-		boxList.append(boxInfo)
-
-		pageNum += 1
-		
-	return boxList, pageWidths
+		if field[1] is not None:
+			pageBeginTextCount = labeled_relations(pageBeginTextCount, field, textData, currPage)
+		elif field[1] is None:
+			pageBeginTextCount = unlabeled_relations(pageHeights, pageWidths, textData, img, imageName, currPage, 
+								imageHeight, imageWidth, field, pageBeginTextCount)
 
 
 # helper function for 'field_text_relations' that looks at fields with titles
-def labeled_relations(pageTextCount, field, currPage, textDataSize):
-	# do I need to implement a totalTextCount or something in this function? Probably
+def labeled_relations(pageTextCount, field, textData, currPage):
 	i = pageTextCount
 	fieldName = field[1]
 	minimumDist = 1000
 	minimumString = "DEFAULT"
+	textDataSize = len(textData)
 	while i < textDataSize:
 		text = textData[i]
+		if currPage != text[0]:
+			pageTextCount = i
+			break
 		editDistance = ed.eval(fieldName, text[3])
 		if editDistance < minimumDist:
 			minimumDist = editDistance
 			minimumString = text[3]
-		if currPage != text[0]:
-			break
 		i += 1
+
 	#### if edit distance is close, can I look at close text that reduces edit distance?
+	#if proximity_edit_distance(text, textData, currPage, pageTextCount, minimumDist, fieldName):
+	#	print("improves edit distance")
+	
 	if minimumDist != 0:
+		#print("splitting the field name")
 		words = fieldName.split(" ")
 		list = []
 		i = pageTextCount
 		j = 0
 		while i < textDataSize:
 			text = textData[i]
+			#print("currPage is " + str(currPage) + " & textPage is " + str(text[0]) + " when i is " + str(i) + "; fieldPage is " + str(field[0]))
 			if currPage != text[0]:
+				pageTextCount = i
 				break
 			list.append([i, 0])
 			for word in words:
@@ -308,7 +344,7 @@ def labeled_relations(pageTextCount, field, currPage, textDataSize):
 			print("'" + fieldName + "' & '" + minimumString + "' w/ distance " + str(minimumDist))
 		elif len(matchList) > 1:
 			minimumDist = 1000
-			minimumString = ""
+			minimumString = "what the heck"
 			for match in matchList:
 				editDistance = ed.eval(fieldName, textData[match][3])
 				if editDistance < minimumDist:
@@ -319,9 +355,12 @@ def labeled_relations(pageTextCount, field, currPage, textDataSize):
 	else:
 		print("perfect match: '" + fieldName + "' & '" + minimumString + "'")
 
+	return pageTextCount
+
 
 # helper function for 'field_text_relations' that looks at fields without titles
-def unlabeled_relations(img, imageName, currPage, imageHeight, imageWidth, field, totalTextCount):
+def unlabeled_relations(pageHeights, pageWidths, textData, img, imageName, currPage, 
+						imageHeight, imageWidth, field, pageBeginTextCount):
 	pageHeight = pageHeights[currPage]	
 	pageWidth = pageWidths[currPage]
 	heightMultiplier = imageHeight / pageHeight
@@ -341,7 +380,7 @@ def unlabeled_relations(img, imageName, currPage, imageHeight, imageWidth, field
 		# TEXT INFO (ratios) -> [0]:pageNum, [1]:x0, [2]:x1, [3]:textLine, [4]:height, [5]:top
 		# BOX INFO -> [0]:pageNum, [1]:boxName, [2]:x, [3]:y, [4]:w, [5]:h
 		if text[0] == field[0]:
-			totalTextCount += 1
+			pageBeginTextCount += 1
 
 			text_x0 = int(text[1] * imageWidth)
 			text_x1 = int(text[2] * imageWidth)
@@ -377,51 +416,43 @@ def unlabeled_relations(img, imageName, currPage, imageHeight, imageWidth, field
 				isAbove = False
 			if(bottomMargin < 0):
 				isBelow = False
-	
+
 	img_f.imwrite(imageName, img)
+	return pageBeginTextCount
 
 
-# seeks to find the connection between text and associated fields and boxes
-def field_text_relations():
-	totalTextCount = 0
-	pageTextCount = 0
-	currPage = 0
-	textDataSize = len(textData)
-
-	imageName = (pdfName[:len(pdfName)-4] + "/page" + str(currPage) + "_edited.png")
-	img = img_f.imread(imageName,color=True)
-	imageHeight = img.shape[0]
-	imageWidth = img.shape[1]
-
-	for field in fieldData:
-		if field[0] != currPage:
-			img_f.imwrite(imageName, img)
-			currPage = field[0]
-			imageName = imageName[:len(imageName)-12] + str(currPage) + "_edited.png"
-			imageName = (imageName)
-			img = img_f.imread(imageName,color=True)
-			imageHeight = img.shape[0]
-			imageWidth = img.shape[1]
-
-			pageTextCount = totalTextCount
-		else:
-			totalTextCount = pageTextCount
-
-		if field[1] is not None:
-			labeled_relations(pageTextCount, field, currPage, textDataSize)
-		elif field[1] is None:
-			unlabeled_relations(img, imageName, currPage, imageHeight, imageWidth, field, totalTextCount)
+def proximity_edit_distance(text, textData, currPage, pageTextCount, minimumDist, fieldName):
+	isClose = False
+	i = pageTextCount
+	tempMinDist = minimumDist
+	while i < len(textData):
+		if currPage != textData[i]:
+			break
+		tempText = text[3] + " " + textData[i][3]
+		if ed.eval(tempText, fieldName) < minimumString:
+			print(tempText);
+	return isClose
 
 
-args = read_args()
-pdfName = args[0]
-imageRes = args[1]
-resolutionSpecified = True
-if imageRes == 0:
-	print("no resolution specified")
-	resolutionSpecified = False
-pageCount = create_image()
-fieldData, pageHeights = process_data()
-textData, pageWidths = extract_text_boxes()
-draw_bounding_boxes()
-field_text_relations()
+def field_proximity_check(text, fieldData, currPage):
+	isClose = False
+	return isClose
+
+
+def main():
+	args = read_args()
+	pdfName = args[0]
+	imageRes = args[1]
+	resolutionSpecified = True
+	if imageRes == 0:
+		print("no resolution specified")
+		resolutionSpecified = False
+	pageCount = create_image(imageRes, pdfName, resolutionSpecified)
+	fieldData, pageHeights = process_data(pdfName, pageCount)
+	textData, pageWidths = extract_text_boxes(pdfName, pageHeights)
+	draw_bounding_boxes(pageCount, pdfName, pageHeights, pageWidths, fieldData, textData)
+	field_text_relations(textData, pdfName, fieldData, pageHeights, pageWidths)
+
+
+if __name__ == "__main__":
+    main()

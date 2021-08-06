@@ -3,6 +3,7 @@
 # converts pdf2json, generates a human-readable form of that,
 # then converts the pdf to an image with the specified resolution
 
+# how to take in optional arguments where no argument is required?
 while getopts f:r:p: opt; do
 	case "$opt" in
 		f) file=${OPTARG};;
