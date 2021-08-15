@@ -69,7 +69,9 @@ def create_image(imageRes, pdfName, resolutionSpecified):
 				print("converting page number " + str(pageCount) + " to .png...")
 				im = page.to_image(resolution=imageRes)
 				im.save(dirName + "/page" + str(pageCount) + ".png", format="PNG")
+
 			pageCount += 1
+
 	return pageCount
 
 
@@ -93,7 +95,7 @@ def process_data(pdfName, pageCount):
 
 		for field in pdfInfo['formImage']['Pages'][i]['Fields']:
 			try:
-				fieldName = field['TU']
+				fieldName = field['TU'].lower()
 			except:
 				fieldName = None
 			tuple = (i, fieldName, field['x'], field['y'], field['w'], field['h'])
@@ -102,7 +104,7 @@ def process_data(pdfName, pageCount):
 		for boxset in pdfInfo['formImage']['Pages'][i]['Boxsets']:
 			for box in boxset['boxes']:
 				try:
-					boxName = box['TU']
+					boxName = box['TU'].lower()
 				except:
 					boxName = None
 				tuple = (i, boxName, box['x'], box['y'], box['w'], box['h'])
@@ -110,10 +112,12 @@ def process_data(pdfName, pageCount):
 
 		i += 1
 
+# TODO: convert from lists to dictionaries? Indices would be much easier to understand
+
 	return fieldData, pageHeights
 
 
-# old print function to make sure that all data that can be pulled from JSON is pulled...
+# deprecated print function to make sure that all data that can be pulled from JSON is pulled...
 def print_list(list):
 	counter = 0
 	for dim in list:
@@ -165,7 +169,7 @@ def extract_text_boxes(pdfName, pageHeights):
 				box_x1 = word['x1']
 			else:
 				boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
-						textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
+						textLine.lower(), (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
 				textData.append(boxInfo)
 				box_x0 = word['x0']
 				box_x1 = word['x1']
@@ -176,9 +180,11 @@ def extract_text_boxes(pdfName, pageHeights):
 			lastWord = word
 
 		boxInfo = (pageNum, (float(box_x0) / float(pageWidth)), (float(box_x1) / float(pageWidth)), 
-				textLine, (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
+				textLine.lower(), (float(height) / float(pageHeight)), (float(top) / float(pageHeight)))
 		textData.append(boxInfo)
 		pageNum += 1
+
+# TODO: switch from lists to dictionaries? Indices would be much easier to understand
 		
 	return textData, pageWidths
 
@@ -269,20 +275,23 @@ def field_text_relations(textData, pdfName, fieldData, pageHeights, pageWidths):
 			img = img_f.imread(imageName,color=True)
 			imageHeight = img.shape[0]
 			imageWidth = img.shape[1]
-			print("setting pageEndTextCount(" + str(pageEndTextCount) + ") to pageBeginTextCount(" + str(pageBeginTextCount) + ")")
+			print("setting pageEndTextCount(" + str(pageEndTextCount) + ") to pageBeginTextCount(" 
+				+ str(pageBeginTextCount) + ")")
 			pageEndTextCount = pageBeginTextCount
 		else:
 			pageBeginTextCount = pageEndTextCount
 
 		if field[1] is not None:
-			pageBeginTextCount = labeled_relations(pageBeginTextCount, field, textData, currPage)
+			pageBeginTextCount = labeled_relations(pageBeginTextCount, field, textData, currPage, img, imageName)
 		elif field[1] is None:
 			pageBeginTextCount = unlabeled_relations(pageHeights, pageWidths, textData, img, imageName, currPage, 
 								imageHeight, imageWidth, field, pageBeginTextCount)
 
 
 # helper function for 'field_text_relations' that looks at fields with titles
-def labeled_relations(pageTextCount, field, textData, currPage):
+def labeled_relations(pageTextCount, field, textData, currPage, img, imageName):
+	# calculates edit distance between field title & every text box on page,
+	# keeping the text with the lowest edit distance as "minimumString"
 	i = pageTextCount
 	fieldName = field[1]
 	minimumDist = 1000
@@ -299,53 +308,55 @@ def labeled_relations(pageTextCount, field, textData, currPage):
 			minimumString = text[3]
 		i += 1
 
-	#### if edit distance is close, can I look at close text that reduces edit distance?
-	#if proximity_edit_distance(text, textData, currPage, pageTextCount, minimumDist, fieldName):
-	#	print("improves edit distance")
-	
+	# finds phrases that have a word in common at a time with field title;
+	# the total number is also tracked
 	if minimumDist != 0:
-		#print("splitting the field name")
 		words = fieldName.split(" ")
-		list = []
+		matchList = []
 		i = pageTextCount
 		j = 0
 		while i < textDataSize:
 			text = textData[i]
-			#print("currPage is " + str(currPage) + " & textPage is " + str(text[0]) + " when i is " + str(i) + "; fieldPage is " + str(field[0]))
+			#print("currPage is " + str(currPage) + " & textPage is " + str(text[0]) + 
+			#	" when i is " + str(i) + "; fieldPage is " + str(field[0]))
 			if currPage != text[0]:
 				pageTextCount = i
 				break
-			list.append([i, 0])
+			matchList.append([i, 0])
 			for word in words:
 				if word == "":
 					continue
 				if word in text[3]:
-					list[j][1] += 1
+					matchList[j][1] += 1
 			i += 1
 			j += 1
 
-		matchList = []
+		# checks matching phrases for proximity
+		field_proximity_check(field, textData, matchList, img, imageName)
+
+		# reduces matching phrases to the phrase with the most words
+		refinedMatchList = []
 		j = 0
 		match = 0
-		for x in list:
+		for x in matchList:
 			if x[1] < match:
 				continue
 			if x[1] > match:
-				matchList.clear()
+				refinedMatchList.clear()
 				match = x[1]
-			matchList.append(x[0])
+			refinedMatchList.append(x[0])
 			j += 1
 				
-		if len(matchList) == 1:
-			matchIndx = matchList[0]
+		if len(refinedMatchList) == 1:
+			matchIndx = refinedMatchList[0]
 			minimumString = textData[matchIndx][3]
 			print("CLOSE match: '" + fieldName + "' & '" + minimumString + "'")
-		elif len(matchList) == 0:
+		elif len(refinedMatchList) == 0:
 			print("'" + fieldName + "' & '" + minimumString + "' w/ distance " + str(minimumDist))
-		elif len(matchList) > 1:
+		elif len(refinedMatchList) > 1:
 			minimumDist = 1000
-			minimumString = "what the heck"
-			for match in matchList:
+			minimumString = ""
+			for match in refinedMatchList:
 				editDistance = ed.eval(fieldName, textData[match][3])
 				if editDistance < minimumDist:
 					minimumDist = editDistance
@@ -369,7 +380,7 @@ def unlabeled_relations(pageHeights, pageWidths, textData, img, imageName, currP
 	field_x = int(field[2] * widthMultiplier)
 	field_y = int(field[3] * heightMultiplier)
 	field_w = int(field[4] * widthMultiplier)
-	field_h = int(field[5] * heightMultiplier) 
+	field_h = int(field[5] * heightMultiplier)
 
 	leftX = int(field_x)
 	leftY = int(field_y)
@@ -421,22 +432,98 @@ def unlabeled_relations(pageHeights, pageWidths, textData, img, imageName, currP
 	return pageBeginTextCount
 
 
-def proximity_edit_distance(text, textData, currPage, pageTextCount, minimumDist, fieldName):
+def field_proximity_check(field, textData, matchList, img, imageName):
+	# TODO: if a text with no matches lays in between two, how do I merge that into one complete text?
+	imageHeight = img.shape[0]
+	imageWidth = img.shape[1]
+	fieldName = field[1]
 	isClose = False
-	i = pageTextCount
-	tempMinDist = minimumDist
-	while i < len(textData):
-		if currPage != textData[i]:
-			break
-		tempText = text[3] + " " + textData[i][3]
-		if ed.eval(tempText, fieldName) < minimumString:
-			print(tempText);
+	# matchList contains all text items. If there were matches, matchList[1] will contain # of matches
+	prunedList = []
+	maxMatch = 0
+	maxMatchList = []
+	i = 0
+	for match in matchList:
+		matchValue = match[1]
+		if matchValue > 0:
+			prunedList.append(match)
+
+		if matchValue < maxMatch:
+			continue
+		elif matchValue > maxMatch:
+			for x in maxMatchList:
+				# readds previous matches to matchList if superseded by a better match
+				matchList.append(x)
+			maxMatch = matchValue
+			maxMatchList.clear()
+		# ensures that there is no comparison of `maxMatch`es with themselves by removing it from `matchList`
+		del matchList[i]
+		maxMatchList.append(match)
+
+	boxCombine = []
+	for match in prunedList:
+		# text is a string with at least one word contained within fieldName
+		# for example, if fieldName is "date of birth", `text` contains some combination of 1 or more 
+		# "date", "of", and "birth"
+		text = textData[match[0]]
+		text_x0 = int(text[1] * imageWidth)
+		text_x1 = int(text[2] * imageWidth)
+		text_h = int(text[4] * imageHeight)
+		text_top = int(text[5] * imageHeight)
+
+		for maxMatch in maxMatchList:
+			maxText = textData[maxMatch[0]]
+			maxText_x0 = int(text[1] * imageWidth)
+			maxText_x1 = int(text[2] * imageWidth)
+			maxText_h = int(text[4] * imageHeight)
+			maxText_top = int(text[5] * imageHeight)
+
+			# tolerances as a ratio of page size
+			x0_margin = abs(text_x0 - maxText_x0) / imageWidth
+			x1_margin = abs(text_x1 - maxText_x1) / imageWidth
+			bottom_margin = abs((text_top + text_h) - (maxText_top + maxText_h)) / imageHeight
+			top_margin = abs(text_top - maxText_top) / imageHeight
+			center_diff = abs((text_x1 - text_x0) - (maxText_x1 - maxText_x0)) / imageWidth
+			# Do I need to compare centering as related to the length of the text as well? What if right or left aligned?
+
+			if (x0_margin > 0.1) or (x1_margin > 0.1) or (bottom_margin > 0.1) or (top_margin > 0.1) or (center_diff > 0.1):
+				continue
+			else:
+				boxCombine.append(text)
+
+			# TODO: cases for what these margins mean! What is close enough? Too far? What are the rules? Tolerances?
+
+	# TODO: put this in it's own function so that there is only one write function for faster performance
+	maxLeftX = 0
+	maxLeftY = 0
+	maxRightX = 0
+	maxRightY = 0
+	#maxTextLine -> for future parsing? not sure if this is important to store
+	for text in boxCombine:
+		leftX = int(text[1] * imageWidth)
+		leftY = int(text[5] * imageHeight)
+		rightX = int(text[2] * imageWidth)
+		rightY = int((text[4] * imageHeight) + leftY)
+		# TODO: case of initial, will never change because will always be 0 -> must assign first time through
+		if leftX < maxLeftX:
+			maxLeftX = leftX
+		if leftY < maxLeftY:
+			maxLeftX = leftY
+		if rightX > maxRightX:
+			maxRightX = rightX
+		if rightY > maxRightY:
+			maxRightY = rightY
+		
+	# TODO: using the MAX dimensions for combining boxes doesn't - need to know what I'm looking at to see
+	# if combining actually makes sense for the given scenaria
+	img_f.rectangle(img,(maxLeftX, maxLeftY),(maxRightX, maxRightY),color=(255,0,255),thickness=3)
+
+	img_f.imwrite(imageName, img)
 	return isClose
 
 
-def field_proximity_check(text, fieldData, currPage):
-	isClose = False
-	return isClose
+def text_vertical_merge():
+	print("merging text aligned vertically")
 
 
 def main():
@@ -447,6 +534,7 @@ def main():
 	if imageRes == 0:
 		print("no resolution specified")
 		resolutionSpecified = False
+
 	pageCount = create_image(imageRes, pdfName, resolutionSpecified)
 	fieldData, pageHeights = process_data(pdfName, pageCount)
 	textData, pageWidths = extract_text_boxes(pdfName, pageHeights)

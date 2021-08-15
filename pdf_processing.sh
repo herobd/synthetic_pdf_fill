@@ -5,7 +5,7 @@
 file=""
 image_res=150
 pretty_print=0
-while [ "$1" != "" ]; do
+while [[ $1 != "" ]]; do
 	case $1 in
 	-f | --file )			shift
 							file="$1"
@@ -22,7 +22,7 @@ done
 
 if [[ ! -f $file ]]
 then
-	echo "this file does not exist!"
+	echo "${file} does not exist!"
 	exit
 fi
 
