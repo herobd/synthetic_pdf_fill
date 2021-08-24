@@ -10,6 +10,9 @@ import img_f
 import pdfplumber
 import numpy as np
 import editdistance as ed
+import matplotlib.pyplot as plt
+
+from operator import itemgetter
 
 # reads in provided file name and, if specified, a resolution
 def read_args():
@@ -130,6 +133,106 @@ def print_list(list):
 		counter += 1
 
 
+def plot_spacing(pageCount, textData, pdfName):
+	# plot data to see distribution
+	# TODO: sort data by frequency?
+	# sort by page -> otherwise, we get false data comparison between pages
+
+	i = 0
+	textIndex = 0
+	pageTextList = []
+	textLists = []
+	#print("LENGTH of textData is " + str(len(textData)))
+	while i < pageCount:
+		currPage = i 
+		#print("currPage is " + str(currPage))
+		#print("textIndex is " + str(textIndex))
+		while currPage == i and textIndex < len(textData):
+			currPage = textData[textIndex][0]
+			if currPage == i:
+				pageTextList.append(textData[textIndex])
+				textIndex += 1
+			else:
+				break
+		textLists.append(pageTextList)
+		print("LIST" + str(textLists[i]))
+		pageTextList.clear()
+		i += 1
+
+
+	print("PRINTING WITH NUMBER BASED LOOP")
+	i = 0
+	while i < len(textLists):
+		print("LIST" + str(textLists[i]))
+		i += 1
+	
+	print("PRINTING WITH ITERATING LOOP")
+	for textList in listOfLists:
+		print("Printing an item from listOfLists")
+		print(textList)
+	# loops through the text of each page separately and generate separate plot
+	pageNum = 0
+	for textList in listOfLists:
+		print("PAGE " + str(pageNum) + " has " + str(len(textList)) + " elements")
+		sortedTextList = sorted(textList, key=itemgetter(5))
+		sortedYValueData = []
+		#print(sortedTextList)
+		for sortedText in sortedTextList:
+			#print(sortedText[5])
+			sortedYValueData.append(sortedText[5])
+
+		#print(sortedYValueData)
+		sortedSpacingData = []
+		i = 0
+		for text in sortedYValueData[1:]:
+			# at this point, unsorted
+			sortedSpacingData.append(text - sortedYValueData[i])
+			i += 1
+
+		sortedSpacingData.sort()
+		# approximately 5 per interval average - maybe pass in as a variable?
+		numFrequencySections = len(textList) // 5
+		interval = (sortedSpacingData[len(sortedSpacingData) - 1] - sortedSpacingData[0]) / numFrequencySections
+		i = 0
+		currentStep = sortedSpacingData[0]
+		frequencyList = [0]
+		frequencyIndex = 0
+		while i < len(sortedSpacingData):
+			#print("frequencyList is now " + str(frequencyIndex))
+			#print("currentStep is " + str(currentStep) + " and the dataPoint is " + str(sortedSpacingData[i]))
+			if(sortedSpacingData[i] <= currentStep):
+				frequencyList[frequencyIndex] += 1
+				#print("\tfrequencyList at " + str(frequencyIndex) + " is now " + str(frequencyList[frequencyIndex]))
+			# needs to iterate through again to make sure we're not adding to the wrong interval
+			elif(sortedSpacingData[i] > currentStep):
+				currentStep += interval
+				frequencyList.append(0)
+				frequencyIndex += 1
+				continue
+			i += 1
+
+		i = 0
+		currentStep = sortedSpacingData[0]
+		intervalList = []
+		while i <= numFrequencySections:
+			intervalList.append(currentStep)
+			currentStep += interval
+			i += 1
+
+		#print(intervalList)
+		#print(frequencyList)
+		
+		plt.plot(intervalList, frequencyList)
+		plt.xlabel("number on sorted listed")
+		plt.ylabel("vertical space between closest neighbors")
+		noPdfName = pdfName[:len(pdfName)-4]
+		plotName = noPdfName + (noPdfName[len("examplePDFs"):]) + str(pageNum) + ".png"
+		plt.savefig(plotName)
+		plt.show()
+
+		pageNum += 1
+
+
 # finds and draws boxes around text entity... needs work with multiline texts
 def extract_text_boxes(pdfName, pageHeights):
 	print("extracting text...")
@@ -150,6 +253,8 @@ def extract_text_boxes(pdfName, pageHeights):
 		lastWordHeight = lastWord['bottom'] - lastWord['top']
 		height = lastWordHeight
 		top = lastWord['top']
+
+		# TODO: inspect line spacing
 
 		for word in wordList[1:]:
 			lastWordHeight = lastWord['bottom'] - lastWord['top']
@@ -191,9 +296,12 @@ def extract_text_boxes(pdfName, pageHeights):
 
 # takes field and text data, along with page information, to draw bounding boxes
 def draw_bounding_boxes(pageCount, pdfName, pageHeights, pageWidths, fieldData, textData):
+	# plot data
+	plot_spacing(pageCount, textData, pdfName)
+
 	i = 0
-	dataIndex = 0
 	boxIndex = 0
+	textIndex = 0
 	while i < pageCount:
 		imageName = (pdfName[:len(pdfName)-4] + "/page" + str(i) + ".png")
 		img = img_f.imread(imageName,color=True)
@@ -203,13 +311,13 @@ def draw_bounding_boxes(pageCount, pdfName, pageHeights, pageWidths, fieldData, 
 		widthMultiplier = imageWidth / pageWidths[i]
 
 		currPage = i
-		while currPage == i and dataIndex < len(fieldData):
-			currPage = fieldData[dataIndex][0]
+		while currPage == i and boxIndex < len(fieldData):
+			currPage = fieldData[boxIndex][0]
 			if currPage == i:
-				x = fieldData[dataIndex][2] * widthMultiplier
-				y = fieldData[dataIndex][3] * heightMultiplier
-				w = fieldData[dataIndex][4] * widthMultiplier
-				h = fieldData[dataIndex][5] * heightMultiplier 
+				x = fieldData[boxIndex][2] * widthMultiplier
+				y = fieldData[boxIndex][3] * heightMultiplier
+				w = fieldData[boxIndex][4] * widthMultiplier
+				h = fieldData[boxIndex][5] * heightMultiplier 
 
 				leftX = int(x)
 				leftY = int(y)
@@ -219,21 +327,21 @@ def draw_bounding_boxes(pageCount, pdfName, pageHeights, pageWidths, fieldData, 
 				img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(255,0,0),thickness=3)
 			else:
 				break
-			dataIndex += 1
+			boxIndex += 1
 
 		currPage = i
-		while currPage == i and boxIndex < len(textData):
-			currPage = textData[boxIndex][0]
+		while currPage == i and textIndex < len(textData):
+			currPage = textData[textIndex][0]
 			if currPage == i:
-				leftX = int(textData[boxIndex][1] * imageWidth)
-				leftY = int(textData[boxIndex][5] * imageHeight)
-				rightX = int(textData[boxIndex][2] * imageWidth)
-				rightY = int((textData[boxIndex][4] * imageHeight) + leftY)
+				leftX = int(textData[textIndex][1] * imageWidth)
+				leftY = int(textData[textIndex][5] * imageHeight)
+				rightX = int(textData[textIndex][2] * imageWidth)
+				rightY = int((textData[textIndex][4] * imageHeight) + leftY)
 
 				img_f.rectangle(img,(leftX, leftY),(rightX, rightY),color=(0,220,30),thickness=3)
 			else:
 				break
-			boxIndex += 1
+			textIndex += 1
 
 		editedImageName = imageName[:len(imageName)-4] + "_edited.png"
 		print("writing to " + editedImageName + "...")
@@ -332,7 +440,7 @@ def labeled_relations(pageTextCount, field, textData, currPage, img, imageName):
 			j += 1
 
 		# checks matching phrases for proximity
-		field_proximity_check(field, textData, matchList, img, imageName)
+		#field_proximity_check(field, textData, matchList, img, imageName)
 
 		# reduces matching phrases to the phrase with the most words
 		refinedMatchList = []
@@ -437,7 +545,6 @@ def field_proximity_check(field, textData, matchList, img, imageName):
 	imageHeight = img.shape[0]
 	imageWidth = img.shape[1]
 	fieldName = field[1]
-	isClose = False
 	# matchList contains all text items. If there were matches, matchList[1] will contain # of matches
 	prunedList = []
 	maxMatch = 0
@@ -471,12 +578,21 @@ def field_proximity_check(field, textData, matchList, img, imageName):
 		text_h = int(text[4] * imageHeight)
 		text_top = int(text[5] * imageHeight)
 
+		# put this loop on the outside
 		for maxMatch in maxMatchList:
 			maxText = textData[maxMatch[0]]
 			maxText_x0 = int(text[1] * imageWidth)
 			maxText_x1 = int(text[2] * imageWidth)
 			maxText_h = int(text[4] * imageHeight)
 			maxText_top = int(text[5] * imageHeight)
+
+			isLeft = False
+			isRight = False
+			isAbove = False
+			isBelow = False
+			isCentered = False
+
+			# SPACING CONSIDERATION - probably no more than double spacing
 
 			# tolerances as a ratio of page size
 			x0_margin = abs(text_x0 - maxText_x0) / imageWidth
@@ -486,8 +602,17 @@ def field_proximity_check(field, textData, matchList, img, imageName):
 			center_diff = abs((text_x1 - text_x0) - (maxText_x1 - maxText_x0)) / imageWidth
 			# Do I need to compare centering as related to the length of the text as well? What if right or left aligned?
 
-			if (x0_margin > 0.1) or (x1_margin > 0.1) or (bottom_margin > 0.1) or (top_margin > 0.1) or (center_diff > 0.1):
-				continue
+			# fine tuning margins - do I need to account for text height? Probably so (bigger text overfits, smaller text underfits)
+			if (x0_margin < 0.1):
+				isLeft = True
+			if (x1_margin < 0.1):
+				isRight = True
+			if (bottom_margin < 0.1):
+				isBelow = True
+			if (top_margin < 0.1):
+				isAbove = True
+			if (center_diff < 0.1):
+				isCenter = True
 			else:
 				boxCombine.append(text)
 
@@ -499,6 +624,11 @@ def field_proximity_check(field, textData, matchList, img, imageName):
 	maxRightX = 0
 	maxRightY = 0
 	#maxTextLine -> for future parsing? not sure if this is important to store
+	
+	# combine
+	#for match in textData:
+
+
 	for text in boxCombine:
 		leftX = int(text[1] * imageWidth)
 		leftY = int(text[5] * imageHeight)
@@ -514,12 +644,11 @@ def field_proximity_check(field, textData, matchList, img, imageName):
 		if rightY > maxRightY:
 			maxRightY = rightY
 		
-	# TODO: using the MAX dimensions for combining boxes doesn't - need to know what I'm looking at to see
-	# if combining actually makes sense for the given scenaria
+	# TODO: using the MAX dimensions for combining boxes doesn't work - need to know what I'm looking at to see
+	# if combining actually makes sense for the given scenario
 	img_f.rectangle(img,(maxLeftX, maxLeftY),(maxRightX, maxRightY),color=(255,0,255),thickness=3)
 
 	img_f.imwrite(imageName, img)
-	return isClose
 
 
 def text_vertical_merge():
