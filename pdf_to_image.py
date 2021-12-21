@@ -6,6 +6,7 @@ import re
 import os.path
 
 import img_f
+import paragraph_parser as paraparse
 
 import pdfplumber
 import numpy as np
@@ -16,15 +17,14 @@ from operator import itemgetter
 
 # reads in provided file name and, if specified, a resolution
 def read_args():
-	if __name__ == "__main__":
-		imageRes = 0 # if no command line argument passed, resolution is 0
-		for i, arg in enumerate(sys.argv):
-			if i == 1:
-				fileName = arg # commandline argument specifies PDF to convert to PNG
-				print("\nfile name is " + fileName)
-			if i == 2:
-				imageRes = int(arg)
-				print("imageRes is " + str(imageRes))
+	imageRes = 0 # if no command line argument passed, resolution is 0
+	for i, arg in enumerate(sys.argv):
+		if i == 1:
+			fileName = arg # commandline argument specifies PDF to convert to PNG
+			print("\nfile name is " + fileName)
+		if i == 2:
+			imageRes = int(arg)
+			print("imageRes is " + str(imageRes))
 
 	return (fileName, imageRes)
 
@@ -79,6 +79,8 @@ def create_image(imageRes, pdfName, resolutionSpecified):
 
 
 # to remove lines for text containing only the text found with the '[]'
+# right now, serves to eliminate erroneous data from PDF to JSON
+# to reduce bad bounding boxes
 def string_match(string, search=re.compile(r'[^_ .()•[\]]').search):
 	return not bool(search(string))
 
@@ -133,8 +135,8 @@ def print_list(list):
 		counter += 1
 
 
+# plot data to see distribution of spacing in between elements in a page
 def plot_spacing(pageCount, textData, pdfName):
-	# plot data to see distribution
 	# TODO: sort data by frequency?
 	# sort by page -> otherwise, we get false data comparison between pages
 
@@ -155,24 +157,14 @@ def plot_spacing(pageCount, textData, pdfName):
 			else:
 				break
 		textLists.append(pageTextList)
-		print("LIST" + str(textLists[i]))
-		pageTextList.clear()
+		pageTextList = []
 		i += 1
 
-
-	print("PRINTING WITH NUMBER BASED LOOP")
-	i = 0
-	while i < len(textLists):
-		print("LIST" + str(textLists[i]))
-		i += 1
-	
-	print("PRINTING WITH ITERATING LOOP")
-	for textList in listOfLists:
-		print("Printing an item from listOfLists")
-		print(textList)
-	# loops through the text of each page separately and generate separate plot
 	pageNum = 0
-	for textList in listOfLists:
+	for textList in textLists:
+		if len(textList) == 0:
+			break
+
 		print("PAGE " + str(pageNum) + " has " + str(len(textList)) + " elements")
 		sortedTextList = sorted(textList, key=itemgetter(5))
 		sortedYValueData = []
@@ -184,12 +176,13 @@ def plot_spacing(pageCount, textData, pdfName):
 		#print(sortedYValueData)
 		sortedSpacingData = []
 		i = 0
-		for text in sortedYValueData[1:]:
+		for y in sortedYValueData[1:]:
 			# at this point, unsorted
-			sortedSpacingData.append(text - sortedYValueData[i])
+			sortedSpacingData.append(y - sortedYValueData[i])
 			i += 1
 
 		sortedSpacingData.sort()
+		
 		# approximately 5 per interval average - maybe pass in as a variable?
 		numFrequencySections = len(textList) // 5
 		interval = (sortedSpacingData[len(sortedSpacingData) - 1] - sortedSpacingData[0]) / numFrequencySections
@@ -223,8 +216,8 @@ def plot_spacing(pageCount, textData, pdfName):
 		#print(frequencyList)
 		
 		plt.plot(intervalList, frequencyList)
-		plt.xlabel("number on sorted listed")
-		plt.ylabel("vertical space between closest neighbors")
+		plt.xlabel("Y VALUE (percentage of page?)")
+		plt.ylabel("FREQUENCY")
 		noPdfName = pdfName[:len(pdfName)-4]
 		plotName = noPdfName + (noPdfName[len("examplePDFs"):]) + str(pageNum) + ".png"
 		plt.savefig(plotName)
@@ -650,7 +643,7 @@ def field_proximity_check(field, textData, matchList, img, imageName):
 
 	img_f.imwrite(imageName, img)
 
-
+# functions for eventually combinding bounding boxes across multiple lines
 def text_vertical_merge():
 	print("merging text aligned vertically")
 

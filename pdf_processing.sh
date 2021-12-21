@@ -52,5 +52,5 @@ else
 	echo "pretty_print flag was not set"
 fi
 
-
+python3 paragraph_parser.py $file
 python3 pdf_to_image.py $file $image_res
